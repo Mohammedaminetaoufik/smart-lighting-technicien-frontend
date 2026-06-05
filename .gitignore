@@ -1,0 +1,44 @@
+# ─── Dépendances ─────────────────────────────────
+node_modules/
+.pnp
+.pnp.js
+
+# ─── Environnement ───────────────────────────────
+.env
+.env.local
+.env*.local
+!.env.example
+
+# ─── Expo ────────────────────────────────────────
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+*.orig.*
+
+# ─── Builds natifs ───────────────────────────────
+/ios/
+/android/
+*.apk
+*.aab
+*.ipa
+
+# ─── Metro / bundler ─────────────────────────────
+.metro-health-check*
+.metro-cache/
+
+# ─── Logs / debug ────────────────────────────────
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+*.log
+
+# ─── TypeScript ──────────────────────────────────
+*.tsbuildinfo
+
+# ─── IDE / OS ────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
