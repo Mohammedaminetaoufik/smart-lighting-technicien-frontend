@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react'
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView, ActivityIndicator } from 'react-native'
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView, ActivityIndicator, TextInput } from 'react-native'
 import MapView, { Marker, Polyline, UrlTile } from 'react-native-maps'
 import * as Location from 'expo-location'
 import { useQuery } from '@tanstack/react-query'
@@ -7,6 +7,7 @@ import { useRouter } from 'expo-router'
 import {
   Radio, Lightbulb, MapPin, LocateFixed, RefreshCw,
   Stethoscope, X, Wifi, WifiOff, Wrench, AlertTriangle, Crosshair,
+  Search, Layers, ChevronRight, ChevronLeft, Eye,
 } from 'lucide-react-native'
 import { getMapLampadaires, getMapLCUs, getMapConnections } from '../api/map'
 
@@ -20,6 +21,14 @@ const STATUS_LABEL: Record<string, string> = {
 const STATUS_ICON: Record<string, React.FC<any>> = {
   online: Wifi, offline: WifiOff, maintenance: Wrench,
 }
+
+/* ── fonds de carte ───────────────────────────────────────── */
+const TILES: Record<string, { url: string; maxZoom: number }> = {
+  'Dark Pro':  { url: 'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',  maxZoom: 20 },
+  'Clair':     { url: 'https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png', maxZoom: 20 },
+  'Satellite': { url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', maxZoom: 19 },
+}
+const TILE_KEYS = Object.keys(TILES)
 
 /* ── Marker Lampadaire ────────────────────────────────────── */
 const LampMarker = ({ lamp, selected }: { lamp: any; selected: boolean }) => {
@@ -74,6 +83,9 @@ export default function MapScreen() {
   const [pos, setPos]       = useState<{ latitude: number; longitude: number } | null>(null)
   const [selected, setSel]  = useState<{ type: 'lamp' | 'lcu'; data: any } | null>(null)
   const [filters, setFil]   = useState({ online: true, offline: true, maintenance: true })
+  const [tile, setTile]     = useState('Dark Pro')
+  const [search, setSearch] = useState('')
+  const [sidebar, setSidebar] = useState(false)
 
   useEffect(() => {
     (async () => {
@@ -98,15 +110,22 @@ export default function MapScreen() {
   const lcus     = lcusData?.lcus         ?? []
   const conns    = connsData?.connections  ?? []
 
+  const q = search.trim().toLowerCase()
+  const matchSearch = (l: any) => !q || l.reference?.toLowerCase().includes(q) || l.zone?.toLowerCase().includes(q)
+
   const lamps = useMemo(() =>
-    allLamps.filter((l: any) => filters[l.etat as keyof typeof filters] !== false),
-    [allLamps, filters])
+    allLamps.filter((l: any) => filters[l.etat as keyof typeof filters] !== false && matchSearch(l)),
+    [allLamps, filters, q])
+
+  const filteredLCUs = useMemo(() =>
+    lcus.filter((l: any) => !q || (l.reference || l.name || '').toLowerCase().includes(q) || (l.zone || '').toLowerCase().includes(q)),
+    [lcus, q])
 
   const lampsByLCU = useMemo(() => {
     const m: Record<number, any[]> = {}
-    lamps.forEach((l: any) => { if (l.lcu_id) { m[l.lcu_id] = m[l.lcu_id] ?? []; m[l.lcu_id].push(l) } })
+    allLamps.forEach((l: any) => { if (l.lcu_id) { m[l.lcu_id] = m[l.lcu_id] ?? []; m[l.lcu_id].push(l) } })
     return m
-  }, [lamps])
+  }, [allLamps])
 
   const stats = useMemo(() => ({
     online:      allLamps.filter((l: any) => l.etat === 'online').length,
@@ -119,6 +138,15 @@ export default function MapScreen() {
   const flyTo  = (lat: number, lng: number, delta = 0.005) =>
     mapRef.current?.animateToRegion({ latitude: lat, longitude: lng, latitudeDelta: delta, longitudeDelta: delta }, 800)
 
+  const focusLamp = (l: any) => {
+    setSel({ type: 'lamp', data: l }); setSidebar(false)
+    if (l.latitude && l.longitude) flyTo(l.latitude, l.longitude, 0.003)
+  }
+  const focusLCU = (l: any) => {
+    setSel({ type: 'lcu', data: l }); setSidebar(false)
+    if (l.latitude && l.longitude) flyTo(l.latitude, l.longitude, 0.006)
+  }
+
   return (
     <View style={s.container}>
       <MapView
@@ -129,7 +157,7 @@ export default function MapScreen() {
         showsMyLocationButton={false}
         onPress={() => setSel(null)}
       >
-        <UrlTile urlTemplate="https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png" maximumZ={19} flipY={false} tileSize={256} />
+        <UrlTile key={tile} urlTemplate={TILES[tile].url} maximumZ={TILES[tile].maxZoom} flipY={false} tileSize={256} />
 
         {/* Connexions LCU vers Lampe */}
         {conns.map((c: any, i: number) => {
@@ -210,6 +238,106 @@ export default function MapScreen() {
         <TouchableOpacity style={[s.fab, { top: 122 }]} onPress={() => flyTo(pos.latitude, pos.longitude, 0.01)}>
           <LocateFixed size={18} color="#f1f5f9" />
         </TouchableOpacity>
+      )}
+
+      {/* ── Bouton ouvrir sidebar (gauche) ── */}
+      {!sidebar && (
+        <TouchableOpacity style={s.sidebarToggle} onPress={() => setSidebar(true)}>
+          <Layers size={16} color="#f1f5f9" />
+          <ChevronRight size={14} color="#94a3b8" />
+        </TouchableOpacity>
+      )}
+
+      {/* ── Sidebar coulissante ── */}
+      {sidebar && (
+        <View style={s.sidebar}>
+          {/* Header + recherche */}
+          <View style={s.sbHeader}>
+            <View style={s.sbTitleRow}>
+              <Layers size={15} color="#22c55e" />
+              <Text style={s.sbTitle}>Réseau</Text>
+              <TouchableOpacity style={s.sbClose} onPress={() => setSidebar(false)}>
+                <ChevronLeft size={16} color="#94a3b8" />
+              </TouchableOpacity>
+            </View>
+            <View style={s.searchBox}>
+              <Search size={15} color="#64748b" />
+              <TextInput
+                style={s.searchInput}
+                placeholder="Référence, zone…"
+                placeholderTextColor="#64748b"
+                value={search}
+                onChangeText={setSearch}
+              />
+              {search.length > 0 && (
+                <TouchableOpacity onPress={() => setSearch('')}><X size={15} color="#64748b" /></TouchableOpacity>
+              )}
+            </View>
+          </View>
+
+          <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 20 }}>
+            {/* Fond de carte */}
+            <View style={s.sbSection}>
+              <Text style={s.sbSectionTitle}>Fond de carte</Text>
+              <View style={s.tileRow}>
+                {TILE_KEYS.map((k) => (
+                  <TouchableOpacity key={k}
+                    style={[s.tileBtn, tile === k && s.tileBtnActive]}
+                    onPress={() => setTile(k)}>
+                    <Text style={[s.tileBtnText, tile === k && s.tileBtnTextActive]}>{k}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+
+            {/* LCUs */}
+            <View style={s.sbSection}>
+              <View style={s.sbSectionHead}>
+                <Radio size={12} color="#60a5fa" />
+                <Text style={s.sbSectionTitle}>Passerelles LCU</Text>
+                <Text style={s.sbCount}>{filteredLCUs.length}</Text>
+              </View>
+              {filteredLCUs.map((lcu: any) => {
+                const cnt = lampsByLCU[lcu.id]?.length ?? 0
+                const lit = (lampsByLCU[lcu.id] ?? []).filter((x: any) => (x.intensite ?? 0) > 0).length
+                return (
+                  <TouchableOpacity key={lcu.id} style={s.sbRow} onPress={() => focusLCU(lcu)}>
+                    <Radio size={12} color="#60a5fa" />
+                    <Text style={s.sbRef}>{lcu.reference || lcu.name}</Text>
+                    <Text style={s.sbMeta}><Text style={{ color: '#22c55e' }}>{lit}</Text>/{cnt}</Text>
+                    <Eye size={13} color="#475569" />
+                  </TouchableOpacity>
+                )
+              })}
+              {filteredLCUs.length === 0 && <Text style={s.sbEmpty}>Aucune LCU</Text>}
+            </View>
+
+            {/* Lampadaires */}
+            <View style={s.sbSection}>
+              <View style={s.sbSectionHead}>
+                <Lightbulb size={12} color="#facc15" />
+                <Text style={s.sbSectionTitle}>Lampadaires</Text>
+                <Text style={s.sbCount}>{lamps.length}</Text>
+              </View>
+              {lamps.slice(0, 100).map((l: any) => {
+                const c = STATUS_HEX[l.etat] ?? '#6b7280'
+                const isLit = (l.intensite ?? 0) > 0
+                return (
+                  <TouchableOpacity key={l.id} style={s.sbRow} onPress={() => focusLamp(l)}>
+                    <View style={[s.sbDot, { backgroundColor: c }]} />
+                    <Lightbulb size={12} color={isLit ? '#22c55e' : '#64748b'} />
+                    <Text style={s.sbRef}>{l.reference}</Text>
+                    {l.has_critical_alert && <AlertTriangle size={11} color="#ef4444" />}
+                    <Text style={s.sbMeta}>{l.intensite ?? 0}%</Text>
+                    <Eye size={13} color="#475569" />
+                  </TouchableOpacity>
+                )
+              })}
+              {lamps.length > 100 && <Text style={s.sbEmpty}>+{lamps.length - 100} autres — affinez la recherche</Text>}
+              {lamps.length === 0 && <Text style={s.sbEmpty}>Aucun lampadaire</Text>}
+            </View>
+          </ScrollView>
+        </View>
       )}
 
       {/* ── Légende ── */}
@@ -427,4 +555,39 @@ const s = StyleSheet.create({
   lampChipDot: { width: 6, height: 6, borderRadius: 3 },
   lampChipText: { fontSize: 11, fontWeight: '700', fontFamily: 'monospace' },
   lampChipInt: { color: '#64748b', fontSize: 10 },
+
+  /* ── Sidebar ── */
+  sidebarToggle: {
+    position: 'absolute', top: '50%', left: 0, marginTop: -28,
+    width: 30, height: 56, borderTopRightRadius: 14, borderBottomRightRadius: 14,
+    backgroundColor: 'rgba(15,23,42,0.95)', borderWidth: 1, borderLeftWidth: 0, borderColor: 'rgba(255,255,255,0.15)',
+    alignItems: 'center', justifyContent: 'center',
+    shadowColor: '#000', shadowOpacity: 0.4, shadowRadius: 6, elevation: 5,
+  },
+  sidebar: {
+    position: 'absolute', top: 0, bottom: 0, left: 0, width: 290,
+    backgroundColor: 'rgba(13,18,32,0.98)',
+    borderRightWidth: 1, borderRightColor: 'rgba(255,255,255,0.1)',
+    shadowColor: '#000', shadowOpacity: 0.5, shadowRadius: 12, elevation: 10,
+  },
+  sbHeader: { paddingTop: 14, paddingHorizontal: 12, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.08)' },
+  sbTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
+  sbTitle: { color: '#f1f5f9', fontSize: 15, fontWeight: '700', flex: 1 },
+  sbClose: { padding: 4, borderRadius: 16, backgroundColor: 'rgba(255,255,255,0.08)' },
+  searchBox: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: 'rgba(0,0,0,0.35)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)', borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8 },
+  searchInput: { flex: 1, color: '#f1f5f9', fontSize: 13, padding: 0 },
+  sbSection: { paddingHorizontal: 12, paddingTop: 12, paddingBottom: 4, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.06)' },
+  sbSectionHead: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
+  sbSectionTitle: { color: 'rgba(255,255,255,0.4)', fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1, flex: 1 },
+  sbCount: { color: '#94a3b8', fontSize: 11, fontWeight: '700' },
+  sbRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 8, paddingHorizontal: 4, borderRadius: 8 },
+  sbDot: { width: 6, height: 6, borderRadius: 3 },
+  sbRef: { color: '#cbd5e1', fontSize: 12, fontFamily: 'monospace', flex: 1 },
+  sbMeta: { color: '#64748b', fontSize: 11 },
+  sbEmpty: { color: '#475569', fontSize: 11, textAlign: 'center', paddingVertical: 10 },
+  tileRow: { flexDirection: 'row', gap: 6, marginBottom: 4 },
+  tileBtn: { flex: 1, paddingVertical: 8, borderRadius: 8, backgroundColor: 'rgba(255,255,255,0.06)', alignItems: 'center', borderWidth: 1, borderColor: 'transparent' },
+  tileBtnActive: { backgroundColor: '#22c55e', borderColor: '#22c55e' },
+  tileBtnText: { color: '#94a3b8', fontSize: 11, fontWeight: '600' },
+  tileBtnTextActive: { color: '#fff' },
 })

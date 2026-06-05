@@ -2,6 +2,7 @@ import { apiClient } from './client'
 import { DEFAULT_TECHNICIAN_ID } from '../constants/config'
 
 export interface WorkOrderFilters {
+  scope?: 'all' | 'mine' | 'available'
   status?: string
   priority?: string
   zone?: string

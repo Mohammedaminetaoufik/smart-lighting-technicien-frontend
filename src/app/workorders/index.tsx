@@ -12,14 +12,25 @@ const STATUS_LABELS: Record<string, string> = {
   accepted: 'Accepté', in_progress: 'En cours', resolved: 'Résolu', created: 'Créé',
 }
 
+type Scope = 'all' | 'mine' | 'available'
+const SCOPES: { key: Scope; label: string }[] = [
+  { key: 'all', label: 'Tous' },
+  { key: 'mine', label: 'Mes interventions' },
+  { key: 'available', label: 'Disponibles' },
+]
+
 export default function WorkOrdersScreen() {
   const router = useRouter()
   const params = useLocalSearchParams<{ status?: string; priority?: string }>()
   const [statusFilter, setStatusFilter] = useState(params.status ?? 'Tous')
+  const [scope, setScope] = useState<Scope>('all')
 
   const { data, isRefetching, refetch } = useQuery({
-    queryKey: ['workorders', statusFilter],
-    queryFn: () => getMyWorkOrders(statusFilter !== 'Tous' ? { status: statusFilter } : {}),
+    queryKey: ['workorders', scope, statusFilter],
+    queryFn: () => getMyWorkOrders({
+      scope,
+      ...(statusFilter !== 'Tous' ? { status: statusFilter } : {}),
+    }),
   })
 
   const workOrders = data?.work_orders ?? []
@@ -27,6 +38,21 @@ export default function WorkOrdersScreen() {
   return (
     <View style={styles.container}>
       <OfflineBanner />
+
+      {/* Scope filter tabs */}
+      <View style={styles.tabs}>
+        {SCOPES.map((s) => (
+          <TouchableOpacity
+            key={s.key}
+            style={[styles.tab, scope === s.key && styles.tabActive]}
+            onPress={() => setScope(s.key)}
+          >
+            <Text style={[styles.tabText, scope === s.key && styles.tabTextActive]}>
+              {s.label}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
 
       {/* Status filter tabs */}
       <View style={styles.tabs}>
@@ -57,7 +83,13 @@ export default function WorkOrdersScreen() {
               <ClipboardList size={28} color="#475569" />
             </View>
             <Text style={styles.emptyText}>Aucune intervention</Text>
-            <Text style={styles.emptySubText}>Vos interventions assignées apparaîtront ici</Text>
+            <Text style={styles.emptySubText}>
+              {scope === 'mine'
+                ? 'Vos interventions assignées apparaîtront ici'
+                : scope === 'available'
+                ? 'Les interventions disponibles à prendre apparaîtront ici'
+                : 'Les bons de travail apparaîtront ici'}
+            </Text>
           </View>
         }
       />

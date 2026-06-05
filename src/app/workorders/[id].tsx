@@ -28,7 +28,17 @@ export default function WorkOrderDetailScreen() {
 
   const invalidate = () => { qc.invalidateQueries({ queryKey: ['workorder', id] }); qc.invalidateQueries({ queryKey: ['workorders'] }) }
 
-  const acceptMut = useMutation({ mutationFn: () => acceptWorkOrder(Number(id)), onSuccess: invalidate })
+  const acceptMut = useMutation({
+    mutationFn: () => acceptWorkOrder(Number(id)),
+    onSuccess: invalidate,
+    onError: (err: { response?: { status?: number; data?: { error?: string } } }) => {
+      const msg = err?.response?.status === 409
+        ? (err.response.data?.error || 'Ce bon de travail a déjà été pris par un autre technicien.')
+        : 'Impossible de prendre ce bon de travail.'
+      Alert.alert('Action impossible', msg)
+      invalidate()
+    },
+  })
   const startMut  = useMutation({ mutationFn: () => startWorkOrder(Number(id)), onSuccess: invalidate })
   const noteMut   = useMutation({ mutationFn: (n: string) => addNote(Number(id), n), onSuccess: () => { setNoteText(''); setShowNoteInput(false); invalidate() } })
   const resolveMut = useMutation({ mutationFn: (n: string) => resolveWorkOrder(Number(id), n), onSuccess: () => { setResolveNote(''); setShowResolveInput(false); invalidate() } })
