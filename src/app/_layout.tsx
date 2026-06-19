@@ -4,6 +4,7 @@ import { StatusBar } from 'expo-status-bar'
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client'
 import { queryClient, asyncPersister } from '../lib/offline'
 import { useSyncStore } from '../store/syncStore'
+import { useThemeStore } from '../store/themeStore'
 import { useOfflineSync } from '../hooks/useOfflineSync'
 import { useBootstrap } from '../hooks/useBootstrap'
 
@@ -16,8 +17,13 @@ function BackgroundWorkers() {
 }
 
 export default function RootLayout() {
-  const { loadFromStorage } = useSyncStore()
-  useEffect(() => { loadFromStorage() }, [])
+  const { loadFromStorage: loadSync } = useSyncStore()
+  const { loadFromStorage: loadTheme, mode, palette } = useThemeStore()
+
+  useEffect(() => {
+    loadSync()
+    loadTheme()
+  }, [])
 
   return (
     <PersistQueryClientProvider
@@ -25,13 +31,13 @@ export default function RootLayout() {
       persistOptions={{ persister: asyncPersister, maxAge: WEEK }}
     >
       <BackgroundWorkers />
-      <StatusBar style="light" backgroundColor="#0f172a" />
+      <StatusBar style={mode === 'dark' ? 'light' : 'dark'} backgroundColor={palette.bg} />
       <Stack
         screenOptions={{
-          headerStyle: { backgroundColor: '#0f172a' },
-          headerTintColor: '#f1f5f9',
+          headerStyle: { backgroundColor: palette.bg },
+          headerTintColor: palette.text,
           headerTitleStyle: { fontWeight: '700' },
-          contentStyle: { backgroundColor: '#0f172a' },
+          contentStyle: { backgroundColor: palette.bg },
         }}
       >
         <Stack.Screen name="index" options={{ headerShown: false }} />

@@ -45,6 +45,36 @@ export const blockWorkOrder = async (id: number, note: string) => {
   return data
 }
 
+export const getWorkOrderPhotos = async (id: number) => {
+  const { data } = await apiClient.get(`/api/mobile/workorders/${id}/photos`)
+  return data
+}
+
+export const uploadWorkOrderPhoto = async (id: number, photoUri: string) => {
+  const formData = new FormData()
+  
+  // Extract filename and extension
+  const uriParts = photoUri.split('/')
+  const fileName = uriParts[uriParts.length - 1]
+  const fileType = fileName.split('.').pop()
+
+  // @ts-ignore
+  formData.append('photo', {
+    uri: photoUri,
+    name: fileName,
+    type: `image/${fileType === 'jpg' ? 'jpeg' : fileType}`,
+  })
+  formData.append('technician_id', String(DEFAULT_TECHNICIAN_ID))
+
+  const { data } = await apiClient.post(`/api/mobile/workorders/${id}/photos`, formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+    timeout: 30000,
+  })
+  return data
+}
+
 export const getDashboard = async () => {
   const { data } = await apiClient.get('/api/mobile/me/dashboard')
   return data

@@ -5,18 +5,23 @@ import { useQuery } from '@tanstack/react-query'
 import {
   ClipboardList, Wrench, AlertTriangle, CheckCircle2,
   Map as MapIcon, RefreshCw, ChevronRight, Clock, Wifi, WifiOff,
-  Lightbulb, Radio, Stethoscope, MapPin,
+  Lightbulb, Radio, Stethoscope, MapPin, Sun, Moon,
 } from 'lucide-react-native'
 import { getDashboard } from '../api/workorders'
 import { OfflineBanner } from '../components/OfflineBanner'
 import { StatusBadge } from '../components/StatusBadge'
 import { useSyncStore } from '../store/syncStore'
+import { useThemeStore } from '../store/themeStore'
 import { useNetworkStatus } from '../hooks/useNetworkStatus'
+import { Palette } from '../constants/theme'
 
 export default function DashboardScreen() {
   const router = useRouter()
   const { isOnline } = useNetworkStatus()
   const { pendingActions, lastSyncAt } = useSyncStore()
+  const { mode, palette, toggleTheme } = useThemeStore()
+
+  const styles = React.useMemo(() => createStyles(palette), [palette])
 
   const { data, refetch, isRefetching } = useQuery({
     queryKey: ['dashboard'],
@@ -49,7 +54,7 @@ export default function DashboardScreen() {
     <View style={styles.container}>
       <OfflineBanner />
       <ScrollView
-        refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor="#22c55e" />}
+        refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor={palette.brand} />}
         contentContainerStyle={styles.scroll}
       >
         {/* Header */}
@@ -60,11 +65,16 @@ export default function DashboardScreen() {
               {lastSyncAt ? `Sync : ${new Date(lastSyncAt).toLocaleTimeString('fr-FR')}` : 'Jamais synchronisé'}
             </Text>
           </View>
-          <View style={[styles.onlineBadge, { backgroundColor: isOnline ? '#22c55e22' : '#ef444422' }]}>
-            {isOnline ? <Wifi size={12} color="#22c55e" /> : <WifiOff size={12} color="#ef4444" />}
-            <Text style={[styles.onlineText, { color: isOnline ? '#22c55e' : '#ef4444' }]}>
-              {isOnline ? 'En ligne' : 'Hors ligne'}
-            </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+            <TouchableOpacity onPress={toggleTheme} style={styles.themeToggle}>
+              {mode === 'dark' ? <Sun size={20} color={palette.warning} /> : <Moon size={20} color={palette.accent} />}
+            </TouchableOpacity>
+            <View style={[styles.onlineBadge, { backgroundColor: isOnline ? palette.success + '22' : palette.danger + '22' }]}>
+              {isOnline ? <Wifi size={12} color={palette.success} /> : <WifiOff size={12} color={palette.danger} />}
+              <Text style={[styles.onlineText, { color: isOnline ? palette.success : palette.danger }]}>
+                {isOnline ? 'En ligne' : 'Hors ligne'}
+              </Text>
+            </View>
           </View>
         </View>
 
@@ -162,39 +172,40 @@ export default function DashboardScreen() {
   )
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0f172a' },
+const createStyles = (p: Palette) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: p.bg },
   scroll: { padding: 16 },
   header: { marginBottom: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  greeting: { color: '#f1f5f9', fontSize: 18, fontWeight: '700' },
-  subGreeting: { color: '#64748b', fontSize: 12, marginTop: 2 },
+  themeToggle: { width: 40, height: 40, borderRadius: 12, backgroundColor: p.surface, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: p.border },
+  greeting: { color: p.text, fontSize: 18, fontWeight: '700' },
+  subGreeting: { color: p.textMuted, fontSize: 12, marginTop: 2 },
   onlineBadge: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20 },
   onlineText: { fontSize: 12, fontWeight: '600' },
   syncCard: { backgroundColor: '#f59e0b18', borderColor: '#f59e0b44', borderWidth: 1, borderRadius: 12, padding: 12, marginBottom: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   syncCardLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   syncTitle: { color: '#fbbf24', fontWeight: '700', fontSize: 13 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginBottom: 4 },
-  statCard: { width: '46%', backgroundColor: '#1e293b', borderRadius: 14, padding: 16, alignItems: 'center', borderWidth: 1 },
+  statCard: { width: '46%', backgroundColor: p.surface, borderRadius: 14, padding: 16, alignItems: 'center', borderWidth: 1, borderColor: p.border },
   statIconBox: { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center', marginBottom: 8 },
   statValue: { fontSize: 28, fontWeight: '800', marginBottom: 4 },
-  statLabel: { color: '#94a3b8', fontSize: 12, textAlign: 'center' },
-  sectionTitle: { color: '#64748b', fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1, marginTop: 20, marginBottom: 10 },
-  nextCard: { backgroundColor: '#1e293b', borderRadius: 12, padding: 14, borderWidth: 1, borderColor: '#334155' },
+  statLabel: { color: p.textMuted, fontSize: 12, textAlign: 'center' },
+  sectionTitle: { color: p.textMuted, fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1, marginTop: 20, marginBottom: 10 },
+  nextCard: { backgroundColor: p.surface, borderRadius: 12, padding: 14, borderWidth: 1, borderColor: p.border },
   nextTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
-  nextTitle: { color: '#f1f5f9', fontSize: 15, fontWeight: '700', flex: 1 },
-  nextId: { color: '#64748b', fontSize: 12, marginLeft: 8 },
+  nextTitle: { color: p.text, fontSize: 15, fontWeight: '700', flex: 1 },
+  nextId: { color: p.textMuted, fontSize: 12, marginLeft: 8 },
   nextBadges: { flexDirection: 'row', gap: 6, marginBottom: 8 },
   nextLamp: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  nextLampText: { color: '#94a3b8', fontSize: 12 },
+  nextLampText: { color: p.textMuted, fontSize: 12 },
   mapSummary: { flexDirection: 'row', gap: 8 },
-  mapCell: { flex: 1, backgroundColor: '#1e293b', borderRadius: 12, padding: 12, alignItems: 'center', gap: 4, borderWidth: 1, borderColor: '#334155' },
-  mapValue: { color: '#f1f5f9', fontSize: 18, fontWeight: '800' },
-  mapLabel: { color: '#64748b', fontSize: 10 },
-  alertCard: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#ef444412', borderColor: '#ef444433', borderWidth: 1, borderRadius: 12, padding: 12, marginBottom: 8 },
-  alertMsg: { color: '#fca5a5', fontSize: 13, fontWeight: '500' },
-  alertMeta: { color: '#94a3b8', fontSize: 11, marginTop: 2 },
+  mapCell: { flex: 1, backgroundColor: p.surface, borderRadius: 12, padding: 12, alignItems: 'center', gap: 4, borderWidth: 1, borderColor: p.border },
+  mapValue: { color: p.text, fontSize: 18, fontWeight: '800' },
+  mapLabel: { color: p.textMuted, fontSize: 10 },
+  alertCard: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: p.danger + '12', borderColor: p.danger + '33', borderWidth: 1, borderRadius: 12, padding: 12, marginBottom: 8 },
+  alertMsg: { color: p.danger, fontSize: 13, fontWeight: '500' },
+  alertMeta: { color: p.textMuted, fontSize: 11, marginTop: 2 },
   navGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
-  navBtn: { width: '46%', backgroundColor: '#1e293b', borderRadius: 12, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: 1, borderColor: '#334155' },
+  navBtn: { width: '46%', backgroundColor: p.surface, borderRadius: 12, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: 1, borderColor: p.border },
   navIcon: { width: 40, height: 40, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
-  navText: { color: '#f1f5f9', fontSize: 13, fontWeight: '600', flex: 1 },
+  navText: { color: p.text, fontSize: 13, fontWeight: '600', flex: 1 },
 })

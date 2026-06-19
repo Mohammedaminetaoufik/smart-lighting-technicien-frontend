@@ -1,14 +1,22 @@
 import React, { useState } from 'react'
-import { View, Text, ScrollView, TouchableOpacity, TextInput, Alert, StyleSheet } from 'react-native'
+import { View, Text, ScrollView, TouchableOpacity, TextInput, Alert, StyleSheet, Image, ActivityIndicator } from 'react-native'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Stethoscope, CheckCircle2, Play, FileText, Flag, Map as MapIcon, Send,
+  Camera, Image as ImageIcon,
 } from 'lucide-react-native'
-import { getWorkOrder, acceptWorkOrder, startWorkOrder, addNote, resolveWorkOrder, blockWorkOrder } from '../../api/workorders'
+import * as ImagePicker from 'expo-image-picker'
+import { 
+  getWorkOrder, acceptWorkOrder, startWorkOrder, addNote, 
+  resolveWorkOrder, blockWorkOrder, getWorkOrderPhotos, uploadWorkOrderPhoto 
+} from '../../api/workorders'
 import { StatusBadge } from '../../components/StatusBadge'
 import { useSyncStore, SYNC_ACTIONS } from '../../store/syncStore'
+import { useThemeStore } from '../../store/themeStore'
 import { useNetworkStatus } from '../../hooks/useNetworkStatus'
+import { Palette } from '../../constants/theme'
+import { API_URL } from '../../constants/config'
 
 export default function WorkOrderDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
@@ -16,6 +24,9 @@ export default function WorkOrderDetailScreen() {
   const qc = useQueryClient()
   const { isOnline } = useNetworkStatus()
   const { addAction } = useSyncStore()
+  const { palette } = useThemeStore()
+  const styles = React.useMemo(() => createStyles(palette), [palette])
+
   const [noteText, setNoteText] = useState('')
   const [showNoteInput, setShowNoteInput] = useState(false)
   const [resolveNote, setResolveNote] = useState('')
@@ -26,7 +37,71 @@ export default function WorkOrderDetailScreen() {
     queryFn: () => getWorkOrder(Number(id)),
   })
 
-  const invalidate = () => { qc.invalidateQueries({ queryKey: ['workorder', id] }); qc.invalidateQueries({ queryKey: ['workorders'] }) }
+  const { data: photos = [] } = useQuery({
+    queryKey: ['workorder-photos', id],
+    queryFn: () => getWorkOrderPhotos(Number(id)),
+    enabled: !!id,
+  })
+
+  const invalidate = () => { 
+    qc.invalidateQueries({ queryKey: ['workorder', id] })
+    qc.invalidateQueries({ queryKey: ['workorders'] })
+    qc.invalidateQueries({ queryKey: ['workorder-photos', id] })
+  }
+
+  const uploadMut = useMutation({
+    mutationFn: (uri: string) => uploadWorkOrderPhoto(Number(id), uri),
+    onSuccess: () => {
+      Alert.alert('Succès', 'Photo ajoutée au bon de travail')
+      invalidate()
+    },
+    onError: () => Alert.alert('Erreur', "Échec de l'upload de la photo")
+  })
+
+  const handlePickImage = async () => {
+    if (!isOnline) {
+      Alert.alert('Hors ligne', "L'upload de photos nécessite une connexion internet.")
+      return
+    }
+
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync()
+    if (status !== 'granted') {
+      Alert.alert('Permission refusée', "Nous avons besoin d'accéder à vos photos.")
+      return
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      quality: 0.7,
+    })
+
+    if (!result.canceled && result.assets[0].uri) {
+      uploadMut.mutate(result.assets[0].uri)
+    }
+  }
+
+  const handleTakePhoto = async () => {
+    if (!isOnline) {
+      Alert.alert('Hors ligne', "L'upload de photos nécessite une connexion internet.")
+      return
+    }
+
+    const { status } = await ImagePicker.requestCameraPermissionsAsync()
+    if (status !== 'granted') {
+      Alert.alert('Permission refusée', "Nous avons besoin d'accéder à votre caméra.")
+      return
+    }
+
+    const result = await ImagePicker.launchCameraAsync({
+      allowsEditing: true,
+      quality: 0.7,
+    })
+
+    if (!result.canceled && result.assets[0].uri) {
+      uploadMut.mutate(result.assets[0].uri)
+    }
+  }
 
   const acceptMut = useMutation({
     mutationFn: () => acceptWorkOrder(Number(id)),
@@ -73,6 +148,7 @@ export default function WorkOrderDetailScreen() {
   }
 
   const status = wo.status
+  const canModify = ['accepted', 'in_progress'].includes(status)
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.scroll}>
@@ -128,6 +204,51 @@ export default function WorkOrderDetailScreen() {
           ) : null)}
         </View>
       )}
+
+      {/* Photos Section */}
+      <View style={styles.section}>
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Photos du terrain</Text>
+          <View style={styles.photoCount}><Text style={styles.photoCountText}>{photos.length}</Text></View>
+        </View>
+
+        {photos.length > 0 ? (
+          <View style={styles.photoGrid}>
+            {photos.map((p: any) => (
+              <TouchableOpacity key={p.id} style={styles.photoThumbContainer}>
+                <Image source={{ uri: API_URL + p.url }} style={styles.photoThumb} />
+              </TouchableOpacity>
+            ))}
+          </View>
+        ) : (
+          <View style={styles.emptyPhotos}>
+            <ImageIcon size={20} color={palette.textMuted} opacity={0.3} />
+            <Text style={styles.emptyPhotosText}>Aucune photo pour le moment</Text>
+          </View>
+        )}
+
+        {canModify && (
+          <View style={styles.photoActions}>
+            <TouchableOpacity 
+              style={[styles.photoBtn, uploadMut.isPending && styles.btnDisabled]} 
+              onPress={handleTakePhoto}
+              disabled={uploadMut.isPending}
+            >
+              {uploadMut.isPending ? <ActivityIndicator size="small" color={palette.brand} /> : <Camera size={16} color={palette.brand} />}
+              <Text style={styles.photoBtnText}>Prendre</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={[styles.photoBtn, uploadMut.isPending && styles.btnDisabled]} 
+              onPress={handlePickImage}
+              disabled={uploadMut.isPending}
+            >
+              <ImageIcon size={16} color={palette.brand} />
+              <Text style={styles.photoBtnText}>Galerie</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      </View>
 
       {/* Actions */}
       <View style={styles.section}>
@@ -211,34 +332,46 @@ export default function WorkOrderDetailScreen() {
   )
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0f172a' },
+const createStyles = (p: Palette) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: p.bg },
   scroll: { padding: 16, paddingBottom: 40 },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#0f172a' },
-  loading: { color: '#94a3b8' },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: p.bg },
+  loading: { color: p.textMuted },
   header: { marginBottom: 16 },
-  title: { color: '#f1f5f9', fontSize: 20, fontWeight: '800', marginBottom: 8 },
+  title: { color: p.text, fontSize: 20, fontWeight: '800', marginBottom: 8 },
   badges: { flexDirection: 'row', gap: 8, marginBottom: 10 },
-  description: { color: '#94a3b8', fontSize: 13, lineHeight: 20 },
-  section: { backgroundColor: '#1e293b', borderRadius: 14, padding: 14, marginBottom: 12 },
-  sectionTitle: { color: '#64748b', fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 },
-  infoRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 5, borderBottomWidth: 1, borderBottomColor: '#334155' },
-  label: { color: '#64748b', fontSize: 13 },
-  value: { color: '#f1f5f9', fontSize: 13, fontWeight: '600' },
-  linkBtn: { marginTop: 10, padding: 10, backgroundColor: '#334155', borderRadius: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
-  linkBtnText: { color: '#93c5fd', fontSize: 13, fontWeight: '600' },
+  description: { color: p.textMuted, fontSize: 13, lineHeight: 20 },
+  section: { backgroundColor: p.surface, borderRadius: 14, padding: 14, marginBottom: 12, borderWidth: 1, borderColor: p.border },
+  sectionTitle: { color: p.textMuted, fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 },
+  infoRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 5, borderBottomWidth: 1, borderBottomColor: p.border },
+  label: { color: p.textMuted, fontSize: 13 },
+  value: { color: p.text, fontSize: 13, fontWeight: '600' },
+  linkBtn: { marginTop: 10, padding: 10, backgroundColor: p.surface2, borderRadius: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
+  linkBtnText: { color: p.accent, fontSize: 13, fontWeight: '600' },
   btn: { padding: 14, borderRadius: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 8 },
-  btnBlue:  { backgroundColor: '#3b82f6' },
-  btnAmber: { backgroundColor: '#f59e0b' },
-  btnGreen: { backgroundColor: '#22c55e' },
-  btnSlate: { backgroundColor: '#334155' },
+  btnBlue:  { backgroundColor: p.accent },
+  btnAmber: { backgroundColor: p.warning },
+  btnGreen: { backgroundColor: p.success },
+  btnSlate: { backgroundColor: p.surface2 },
   btnText: { color: 'white', fontWeight: '700', fontSize: 14 },
-  noteBox: { backgroundColor: '#0f172a', borderRadius: 10, padding: 10, marginBottom: 8 },
-  input: { color: '#f1f5f9', fontSize: 13, minHeight: 80, textAlignVertical: 'top', marginBottom: 8 },
-  sendBtn: { backgroundColor: '#22c55e', padding: 10, borderRadius: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
+  noteBox: { backgroundColor: p.bg, borderRadius: 10, padding: 10, marginBottom: 8, borderWidth: 1, borderColor: p.border },
+  input: { color: p.text, fontSize: 13, minHeight: 80, textAlignVertical: 'top', marginBottom: 8 },
+  sendBtn: { backgroundColor: p.success, padding: 10, borderRadius: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
   sendBtnText: { color: 'white', fontWeight: '700' },
-  logRow: { paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#334155' },
-  logAction: { color: '#f1f5f9', fontSize: 12, fontWeight: '600' },
-  logNote: { color: '#94a3b8', fontSize: 12, marginTop: 2 },
-  logDate: { color: '#475569', fontSize: 11, marginTop: 2 },
+  logRow: { paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: p.border },
+  logAction: { color: p.text, fontSize: 12, fontWeight: '600' },
+  logNote: { color: p.textMuted, fontSize: 12, marginTop: 2 },
+  logDate: { color: p.textMuted, opacity: 0.7, fontSize: 11, marginTop: 2 },
+  sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
+  photoCount: { backgroundColor: p.bg, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
+  photoCountText: { color: p.textMuted, fontSize: 11, fontWeight: '600' },
+  photoGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 },
+  photoThumbContainer: { width: '31%', aspectRatio: 1, borderRadius: 8, overflow: 'hidden', backgroundColor: p.bg },
+  photoThumb: { width: '100%', height: '100%' },
+  emptyPhotos: { alignItems: 'center', paddingVertical: 20, gap: 6, marginBottom: 10 },
+  emptyPhotosText: { color: p.textMuted, fontSize: 11 },
+  photoActions: { flexDirection: 'row', gap: 8 },
+  photoBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 10, borderRadius: 10, backgroundColor: p.bg, borderWidth: 1, borderColor: p.border },
+  photoBtnText: { color: p.brand, fontSize: 12, fontWeight: '700' },
+  btnDisabled: { opacity: 0.5 },
 })
