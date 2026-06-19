@@ -37,3 +37,10 @@ export const addLCUFieldNote = async (id: number, note: string) => {
   })
   return data
 }
+
+export const updateLCULocation = async (id: number, latitude: number, longitude: number, accuracy?: number) => {
+  const { data } = await apiClient.post(`/api/mobile/lcus/${id}/location`, {
+    technician_id: DEFAULT_TECHNICIAN_ID, latitude, longitude, accuracy: accuracy ?? 0,
+  })
+  return data
+}

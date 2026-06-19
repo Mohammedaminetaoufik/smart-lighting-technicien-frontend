@@ -1,6 +1,6 @@
 import React from 'react'
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native'
-import { MapPin, AlertTriangle } from 'lucide-react-native'
+import { MapPin, AlertTriangle, Bell, Calendar } from 'lucide-react-native'
 import { StatusBadge } from './StatusBadge'
 import { PRIORITY_COLORS } from '../constants/config'
 
@@ -14,6 +14,8 @@ interface WorkOrderCardProps {
     zone?: string
     technician_id?: number | null
     assigned_to_name?: string
+    source_alert_id?: number | null
+    maintenance_window_id?: number | null
     lampadaire?: { reference: string; etat: string; zone: string } | null
     alert?: { severity: string; message: string } | null
   }
@@ -35,6 +37,18 @@ export const WorkOrderCard: React.FC<WorkOrderCardProps> = ({ workOrder: wo, onP
         {isAvailable && (
           <View style={styles.availableBadge}>
             <Text style={styles.availableText}>Disponible</Text>
+          </View>
+        )}
+        {wo.source_alert_id && (
+          <View style={[styles.tagBadge, styles.tagAlert]}>
+            <Bell size={9} color="#fca5a5" />
+            <Text style={[styles.tagText, { color: '#fca5a5' }]}>Depuis alerte</Text>
+          </View>
+        )}
+        {wo.maintenance_window_id && (
+          <View style={[styles.tagBadge, styles.tagMW]}>
+            <Calendar size={9} color="#93c5fd" />
+            <Text style={[styles.tagText, { color: '#93c5fd' }]}>Maintenance planifiée</Text>
           </View>
         )}
       </View>
@@ -74,6 +88,10 @@ const styles = StyleSheet.create({
   badges: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
   availableBadge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10, backgroundColor: '#22c55e22', borderWidth: 1, borderColor: '#22c55e' },
   availableText: { color: '#22c55e', fontSize: 10, fontWeight: '700' },
+  tagBadge: { flexDirection: 'row', alignItems: 'center', gap: 3, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8, borderWidth: 1 },
+  tagAlert: { backgroundColor: '#ef444415', borderColor: '#ef4444' },
+  tagMW:    { backgroundColor: '#3b82f615', borderColor: '#3b82f6' },
+  tagText:  { fontSize: 9, fontWeight: '700' },
   infoRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 },
   infoLabel: { color: '#64748b', fontSize: 11 },
   infoValue: { color: '#94a3b8', fontSize: 12, flex: 1 },

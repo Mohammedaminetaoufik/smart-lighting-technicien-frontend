@@ -1,15 +1,17 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react'
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView, ActivityIndicator, TextInput } from 'react-native'
-import MapView, { Marker, Polyline, UrlTile } from 'react-native-maps'
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView, ActivityIndicator, TextInput, Alert } from 'react-native'
+import MapView, { Marker, Polyline, UrlTile, Region } from 'react-native-maps'
 import * as Location from 'expo-location'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useRouter } from 'expo-router'
 import {
   Radio, Lightbulb, MapPin, LocateFixed, RefreshCw,
   Stethoscope, X, Wifi, WifiOff, Wrench, AlertTriangle, Crosshair,
-  Search, Layers, ChevronRight, ChevronLeft, Eye,
+  Search, Layers, ChevronRight, ChevronLeft, Eye, Navigation, Check,
 } from 'lucide-react-native'
-import { getMapLampadaires, getMapLCUs, getMapConnections } from '../api/map'
+import { getMapLampadaires, getMapLCUs, getMapConnections, getMissingLocation } from '../api/map'
+import { updateLampadaireLocation } from '../api/lampadaires'
+import { updateLCULocation } from '../api/lcus'
 
 /* ── couleurs ─────────────────────────────────────────────── */
 const STATUS_HEX: Record<string, string> = {
@@ -77,8 +79,11 @@ const mk = StyleSheet.create({
 })
 
 /* ── Écran principal ──────────────────────────────────────── */
+type EditTarget = { type: 'lampadaire' | 'lcu'; id: number; label: string }
+
 export default function MapScreen() {
   const router = useRouter()
+  const qc = useQueryClient()
   const mapRef = useRef<MapView>(null)
   const [pos, setPos]       = useState<{ latitude: number; longitude: number } | null>(null)
   const [selected, setSel]  = useState<{ type: 'lamp' | 'lcu'; data: any } | null>(null)
@@ -86,6 +91,56 @@ export default function MapScreen() {
   const [tile, setTile]     = useState('Dark Pro')
   const [search, setSearch] = useState('')
   const [sidebar, setSidebar] = useState(false)
+
+  /* ── Mode placement ────────────────────────── */
+  const [editTarget, setEditTarget] = useState<EditTarget | null>(null)
+  const [mapCenter, setMapCenter]   = useState<{ latitude: number; longitude: number } | null>(null)
+  const [saving, setSaving]         = useState(false)
+
+  const enterPlacement = (target: EditTarget, initCoord?: { latitude: number; longitude: number }) => {
+    setSel(null); setSidebar(false); setEditTarget(target)
+    if (initCoord) {
+      setMapCenter(initCoord)
+      mapRef.current?.animateToRegion(
+        { ...initCoord, latitudeDelta: 0.003, longitudeDelta: 0.003 }, 600)
+    } else if (pos) {
+      setMapCenter(pos)
+      mapRef.current?.animateToRegion(
+        { ...pos, latitudeDelta: 0.003, longitudeDelta: 0.003 }, 600)
+    }
+  }
+
+  const cancelPlacement = () => { setEditTarget(null); setMapCenter(null) }
+
+  const confirmPlacement = async () => {
+    if (!editTarget || !mapCenter) return
+    Alert.alert(
+      'Confirmer la position',
+      `Enregistrer la position de ${editTarget.label} ?\n\n📍 ${mapCenter.latitude.toFixed(6)}, ${mapCenter.longitude.toFixed(6)}`,
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: 'Confirmer', onPress: async () => {
+            setSaving(true)
+            try {
+              if (editTarget.type === 'lampadaire') {
+                await updateLampadaireLocation(editTarget.id, mapCenter.latitude, mapCenter.longitude)
+                qc.invalidateQueries({ queryKey: ['map-lamps'] })
+                qc.invalidateQueries({ queryKey: ['lampadaire', String(editTarget.id)] })
+              } else {
+                await updateLCULocation(editTarget.id, mapCenter.latitude, mapCenter.longitude)
+                qc.invalidateQueries({ queryKey: ['map-lcus'] })
+                qc.invalidateQueries({ queryKey: ['lcu', String(editTarget.id)] })
+              }
+              setEditTarget(null); setMapCenter(null)
+              Alert.alert('Position enregistrée', `${editTarget.label} localisé avec succès.`)
+            } catch { Alert.alert('Erreur', 'La mise à jour a échoué.') }
+            finally { setSaving(false) }
+          }
+        },
+      ]
+    )
+  }
 
   useEffect(() => {
     (async () => {
@@ -105,10 +160,14 @@ export default function MapScreen() {
   const { data: connsData } = useQuery({
     queryKey: ['map-connections'], queryFn: () => getMapConnections(), refetchInterval: 120_000,
   })
+  const { data: missingData } = useQuery({
+    queryKey: ['map-missing'], queryFn: getMissingLocation, refetchInterval: 60_000,
+  })
 
-  const allLamps = lampsData?.lampadaires ?? []
-  const lcus     = lcusData?.lcus         ?? []
-  const conns    = connsData?.connections  ?? []
+  const allLamps  = lampsData?.lampadaires ?? []
+  const lcus      = lcusData?.lcus         ?? []
+  const conns     = connsData?.connections  ?? []
+  const missing   = missingData?.lampadaires ?? missingData ?? []
 
   const q = search.trim().toLowerCase()
   const matchSearch = (l: any) => !q || l.reference?.toLowerCase().includes(q) || l.zone?.toLowerCase().includes(q)
@@ -155,7 +214,14 @@ export default function MapScreen() {
         initialRegion={{ ...center, latitudeDelta: 0.08, longitudeDelta: 0.08 }}
         showsUserLocation={!!pos}
         showsMyLocationButton={false}
-        onPress={() => setSel(null)}
+        onPress={() => { if (!editTarget) setSel(null) }}
+        onRegionChangeComplete={(r: Region) => {
+          if (editTarget) setMapCenter({ latitude: r.latitude, longitude: r.longitude })
+        }}
+        scrollEnabled
+        zoomEnabled
+        rotateEnabled={!editTarget}
+        pitchEnabled={false}
       >
         <UrlTile key={tile} urlTemplate={TILES[tile].url} maximumZ={TILES[tile].maxZoom} flipY={false} tileSize={256} />
 
@@ -203,6 +269,55 @@ export default function MapScreen() {
         })}
       </MapView>
 
+      {/* ── Mode placement : crosshair + barre de confirmation ── */}
+      {editTarget && (
+        <>
+          {/* Crosshair centré */}
+          <View pointerEvents="none" style={s.crosshairWrap}>
+            <View style={s.crosshairH} />
+            <View style={s.crosshairV} />
+            <View style={s.crosshairDot} />
+            <View style={s.crosshairShadow} />
+          </View>
+
+          {/* Banner haut */}
+          <View style={s.placementBanner}>
+            <Navigation size={14} color="#22c55e" />
+            <Text style={s.placementBannerText} numberOfLines={1}>
+              Déplacez la carte pour centrer sur{' '}
+              <Text style={{ color: '#22c55e', fontWeight: '800' }}>{editTarget.label}</Text>
+            </Text>
+          </View>
+
+          {/* Coordonnées live */}
+          {mapCenter && (
+            <View style={s.coordBadge}>
+              <Text style={s.coordText}>
+                {mapCenter.latitude.toFixed(6)}, {mapCenter.longitude.toFixed(6)}
+              </Text>
+            </View>
+          )}
+
+          {/* Barre confirmation bas */}
+          <View style={s.placementBar}>
+            <TouchableOpacity style={s.placementCancel} onPress={cancelPlacement}>
+              <X size={16} color="#f87171" />
+              <Text style={s.placementCancelText}>Annuler</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[s.placementConfirm, (!mapCenter || saving) && { opacity: 0.5 }]}
+              onPress={confirmPlacement}
+              disabled={!mapCenter || saving}
+            >
+              {saving
+                ? <ActivityIndicator size="small" color="#fff" />
+                : <Check size={16} color="#fff" />}
+              <Text style={s.placementConfirmText}>Confirmer ici</Text>
+            </TouchableOpacity>
+          </View>
+        </>
+      )}
+
       {/* ── Barre stats ── */}
       <View style={s.statsBar}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.statsInner}>
@@ -241,10 +356,15 @@ export default function MapScreen() {
       )}
 
       {/* ── Bouton ouvrir sidebar (gauche) ── */}
-      {!sidebar && (
+      {!sidebar && !editTarget && (
         <TouchableOpacity style={s.sidebarToggle} onPress={() => setSidebar(true)}>
           <Layers size={16} color="#f1f5f9" />
           <ChevronRight size={14} color="#94a3b8" />
+          {missing.length > 0 && (
+            <View style={s.missingBadge}>
+              <Text style={s.missingBadgeText}>{missing.length}</Text>
+            </View>
+          )}
         </TouchableOpacity>
       )}
 
@@ -289,6 +409,39 @@ export default function MapScreen() {
                 ))}
               </View>
             </View>
+
+            {/* Non localisés */}
+            {missing.length > 0 && (
+              <View style={s.sbSection}>
+                <View style={s.sbSectionHead}>
+                  <MapPin size={12} color="#f87171" />
+                  <Text style={[s.sbSectionTitle, { color: '#f87171' }]}>Non localisés</Text>
+                  <View style={s.missingCountBadge}>
+                    <Text style={s.missingCountText}>{missing.length}</Text>
+                  </View>
+                </View>
+                <Text style={s.sbHint}>Appuyez sur "Placer" pour localiser sur la carte</Text>
+                {missing.map((l: any) => (
+                  <View key={l.id} style={s.missingRow}>
+                    <View style={s.missingDot} />
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <Text style={s.sbRef}>{l.reference}</Text>
+                      {l.zone ? <Text style={s.sbMeta}>{l.zone}</Text> : null}
+                    </View>
+                    <TouchableOpacity
+                      style={s.placeBtn}
+                      onPress={() => {
+                        setSidebar(false)
+                        enterPlacement({ type: 'lampadaire', id: l.id, label: l.reference })
+                      }}
+                    >
+                      <MapPin size={11} color="#4ade80" />
+                      <Text style={s.placeBtnText}>Placer</Text>
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </View>
+            )}
 
             {/* LCUs */}
             <View style={s.sbSection}>
@@ -416,9 +569,21 @@ export default function MapScreen() {
             )}
 
             <View style={s.actions}>
-              <TouchableOpacity style={s.actionBtn} onPress={() => flyTo(l.latitude, l.longitude, 0.002)}>
-                <Crosshair size={14} color="#f1f5f9" />
-                <Text style={s.actionBtnText}>Centrer</Text>
+              {l.latitude && l.longitude ? (
+                <TouchableOpacity style={s.actionBtn} onPress={() => flyTo(l.latitude, l.longitude, 0.002)}>
+                  <Crosshair size={14} color="#f1f5f9" />
+                  <Text style={s.actionBtnText}>Centrer</Text>
+                </TouchableOpacity>
+              ) : null}
+              <TouchableOpacity style={[s.actionBtn, s.actionBtnGreen]}
+                onPress={() => enterPlacement(
+                  { type: 'lampadaire', id: l.id, label: l.reference },
+                  l.latitude && l.longitude ? { latitude: l.latitude, longitude: l.longitude } : undefined
+                )}>
+                <MapPin size={14} color="#4ade80" />
+                <Text style={[s.actionBtnText, { color: '#4ade80' }]}>
+                  {l.latitude ? 'Modifier position' : 'Placer sur la carte'}
+                </Text>
               </TouchableOpacity>
               <TouchableOpacity style={[s.actionBtn, s.actionBtnBlue]} onPress={() => router.push(`/diagnostic/${l.id}` as never)}>
                 <Stethoscope size={14} color="#60a5fa" />
@@ -481,11 +646,25 @@ export default function MapScreen() {
               </ScrollView>
             )}
 
-            <TouchableOpacity style={[s.actionBtn, { marginTop: 10 }]}
-              onPress={() => lcu.latitude && flyTo(lcu.latitude, lcu.longitude, 0.003)}>
-              <Crosshair size={14} color="#f1f5f9" />
-              <Text style={s.actionBtnText}>Centrer sur la LCU</Text>
-            </TouchableOpacity>
+            <View style={[s.actions, { marginTop: 10 }]}>
+              {lcu.latitude && lcu.longitude ? (
+                <TouchableOpacity style={s.actionBtn}
+                  onPress={() => flyTo(lcu.latitude, lcu.longitude, 0.003)}>
+                  <Crosshair size={14} color="#f1f5f9" />
+                  <Text style={s.actionBtnText}>Centrer</Text>
+                </TouchableOpacity>
+              ) : null}
+              <TouchableOpacity style={[s.actionBtn, s.actionBtnGreen]}
+                onPress={() => enterPlacement(
+                  { type: 'lcu', id: lcu.id, label: lcu.reference || lcu.name },
+                  lcu.latitude && lcu.longitude ? { latitude: lcu.latitude, longitude: lcu.longitude } : undefined
+                )}>
+                <MapPin size={14} color="#4ade80" />
+                <Text style={[s.actionBtnText, { color: '#4ade80' }]}>
+                  {lcu.latitude ? 'Modifier position' : 'Placer sur la carte'}
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
         )
       })()}
@@ -555,6 +734,68 @@ const s = StyleSheet.create({
   lampChipDot: { width: 6, height: 6, borderRadius: 3 },
   lampChipText: { fontSize: 11, fontWeight: '700', fontFamily: 'monospace' },
   lampChipInt: { color: '#64748b', fontSize: 10 },
+  actionBtnGreen: { backgroundColor: '#22c55e20', borderColor: '#22c55e55' },
+
+  /* ── Mode placement ── */
+  crosshairWrap: {
+    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  crosshairH: {
+    position: 'absolute', width: 40, height: 2,
+    backgroundColor: '#22c55e', borderRadius: 1,
+  },
+  crosshairV: {
+    position: 'absolute', width: 2, height: 40,
+    backgroundColor: '#22c55e', borderRadius: 1,
+  },
+  crosshairDot: {
+    width: 10, height: 10, borderRadius: 5,
+    backgroundColor: '#22c55e',
+    shadowColor: '#22c55e', shadowOpacity: 0.8, shadowRadius: 6, elevation: 6,
+  },
+  crosshairShadow: {
+    position: 'absolute',
+    width: 20, height: 20, borderRadius: 10,
+    backgroundColor: 'transparent',
+    borderWidth: 2, borderColor: 'rgba(34,197,94,0.4)',
+    marginTop: 18,
+  },
+  placementBanner: {
+    position: 'absolute', top: 56, left: 16, right: 16,
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: 'rgba(15,23,42,0.95)',
+    borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10,
+    borderWidth: 1, borderColor: 'rgba(34,197,94,0.4)',
+    shadowColor: '#000', shadowOpacity: 0.4, shadowRadius: 8, elevation: 6,
+  },
+  placementBannerText: { color: '#cbd5e1', fontSize: 13, flex: 1 },
+  coordBadge: {
+    position: 'absolute', top: 110, alignSelf: 'center',
+    backgroundColor: 'rgba(0,0,0,0.75)',
+    borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5,
+    borderWidth: 1, borderColor: 'rgba(34,197,94,0.3)',
+  },
+  coordText: { color: '#4ade80', fontSize: 11, fontFamily: 'monospace', fontWeight: '600' },
+  placementBar: {
+    position: 'absolute', bottom: 0, left: 0, right: 0,
+    flexDirection: 'row', gap: 10,
+    backgroundColor: 'rgba(13,18,32,0.97)',
+    paddingHorizontal: 16, paddingTop: 14, paddingBottom: 32,
+    borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.1)',
+  },
+  placementCancel: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    backgroundColor: 'rgba(239,68,68,0.12)', borderWidth: 1, borderColor: 'rgba(239,68,68,0.3)',
+    borderRadius: 14, paddingVertical: 14,
+  },
+  placementCancelText: { color: '#f87171', fontSize: 14, fontWeight: '700' },
+  placementConfirm: {
+    flex: 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    backgroundColor: '#22c55e', borderRadius: 14, paddingVertical: 14,
+    shadowColor: '#22c55e', shadowOpacity: 0.5, shadowRadius: 8, elevation: 6,
+  },
+  placementConfirmText: { color: '#fff', fontSize: 14, fontWeight: '800' },
 
   /* ── Sidebar ── */
   sidebarToggle: {
@@ -585,6 +826,15 @@ const s = StyleSheet.create({
   sbRef: { color: '#cbd5e1', fontSize: 12, fontFamily: 'monospace', flex: 1 },
   sbMeta: { color: '#64748b', fontSize: 11 },
   sbEmpty: { color: '#475569', fontSize: 11, textAlign: 'center', paddingVertical: 10 },
+  sbHint: { color: '#475569', fontSize: 10, marginBottom: 8, fontStyle: 'italic' },
+  missingRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 7, paddingHorizontal: 4, borderRadius: 8, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)' },
+  missingDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#f87171' },
+  missingCountBadge: { backgroundColor: '#ef444430', borderRadius: 10, paddingHorizontal: 6, paddingVertical: 2 },
+  missingCountText: { color: '#f87171', fontSize: 10, fontWeight: '800' },
+  missingBadge: { position: 'absolute', top: 4, right: 4, width: 14, height: 14, borderRadius: 7, backgroundColor: '#ef4444', alignItems: 'center', justifyContent: 'center' },
+  missingBadgeText: { color: '#fff', fontSize: 8, fontWeight: '800' },
+  placeBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 5, borderRadius: 8, backgroundColor: '#22c55e18', borderWidth: 1, borderColor: '#22c55e44' },
+  placeBtnText: { color: '#4ade80', fontSize: 11, fontWeight: '700' },
   tileRow: { flexDirection: 'row', gap: 6, marginBottom: 4 },
   tileBtn: { flex: 1, paddingVertical: 8, borderRadius: 8, backgroundColor: 'rgba(255,255,255,0.06)', alignItems: 'center', borderWidth: 1, borderColor: 'transparent' },
   tileBtnActive: { backgroundColor: '#22c55e', borderColor: '#22c55e' },

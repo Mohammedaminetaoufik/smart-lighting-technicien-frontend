@@ -2,8 +2,10 @@ import React, { useState } from 'react'
 import { View, Text, ScrollView, TouchableOpacity, TextInput, Alert, RefreshControl, ActivityIndicator, StyleSheet } from 'react-native'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Radio, Activity, RefreshCw, FileText, Send, Lightbulb, ChevronRight } from 'lucide-react-native'
-import { getLCUDetails, testLCU, syncLCU, addLCUFieldNote } from '../../api/lcus'
+import * as Location from 'expo-location'
+import { Radio, Activity, RefreshCw, FileText, Send, Lightbulb, ChevronRight, MapPin } from 'lucide-react-native'
+import { getLCUDetails, testLCU, syncLCU, addLCUFieldNote, updateLCULocation } from '../../api/lcus'
+import AIFieldDiagnostic from '../../components/AIFieldDiagnostic'
 import { ETAT_COLORS, SYNC_ACTIONS } from '../../constants/config'
 import { useNetworkStatus } from '../../hooks/useNetworkStatus'
 import { useSyncStore } from '../../store/syncStore'
@@ -53,6 +55,40 @@ export default function LCUDetailScreen() {
     noteMut.mutate(note)
   }
 
+  const [gpsLoading, setGpsLoading] = useState(false)
+  const handleGPS = async () => {
+    const { status } = await Location.requestForegroundPermissionsAsync()
+    if (status !== 'granted') { Alert.alert('GPS', 'Permission de localisation refusée.'); return }
+    setGpsLoading(true)
+    try {
+      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High })
+      const { latitude, longitude, accuracy } = loc.coords
+      const coordStr = `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`
+      Alert.alert(
+        'Confirmer la localisation',
+        `Mettre à jour la position de ${lcu?.reference || 'cette LCU'} ?\n\n📍 ${coordStr}${accuracy ? `\nPrécision : ±${Math.round(accuracy)} m` : ''}`,
+        [
+          { text: 'Annuler', style: 'cancel' },
+          {
+            text: 'Confirmer', onPress: async () => {
+              if (!isOnline) {
+                addAction({ type: SYNC_ACTIONS.UPDATE_LOCATION, entity: 'lcu', entity_id: Number(id), payload: { latitude, longitude } })
+                Alert.alert('Position enregistrée', 'Synchronisation au retour du réseau.')
+                return
+              }
+              try {
+                await updateLCULocation(Number(id), latitude, longitude, accuracy ?? 0)
+                qc.invalidateQueries({ queryKey: ['lcu', id] })
+                Alert.alert('GPS mis à jour', coordStr)
+              } catch { Alert.alert('Erreur', 'Mise à jour GPS échouée.') }
+            }
+          },
+        ]
+      )
+    } catch { Alert.alert('Erreur GPS', 'Impossible d\'obtenir la position.') }
+    finally { setGpsLoading(false) }
+  }
+
   if (isLoading || !lcu) return <View style={styles.center}><Text style={styles.loading}>Chargement…</Text></View>
   const color = STATUS_COLOR[lcu.status] ?? '#6b7280'
 
@@ -79,6 +115,8 @@ export default function LCUDetailScreen() {
           { k: 'Port', v: lcu.port ? String(lcu.port) : '—' },
           { k: 'Protocole', v: lcu.protocol || '—' },
           { k: 'Zone', v: lcu.zone || '—' },
+          { k: 'Latitude', v: lcu.latitude != null ? lcu.latitude.toFixed(6) : '—' },
+          { k: 'Longitude', v: lcu.longitude != null ? lcu.longitude.toFixed(6) : '—' },
           { k: 'Dernière comm.', v: lcu.last_seen_at ? new Date(lcu.last_seen_at).toLocaleString('fr-FR') : '—' },
           { k: 'Dernière sync', v: lcu.last_sync_at ? new Date(lcu.last_sync_at).toLocaleString('fr-FR') : '—' },
         ].map((row) => (
@@ -119,6 +157,9 @@ export default function LCUDetailScreen() {
         })}
       </View>
 
+      {/* AI Diagnostic terrain */}
+      <AIFieldDiagnostic entityType="lcu" entityId={id} />
+
       {/* Actions terrain */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Actions terrain</Text>
@@ -133,6 +174,12 @@ export default function LCUDetailScreen() {
           </TouchableOpacity>
           <TouchableOpacity style={styles.action} onPress={() => setShowNote(!showNote)}>
             <FileText size={18} color="#f59e0b" /><Text style={styles.actionText}>Note terrain</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.action} onPress={handleGPS} disabled={gpsLoading}>
+            {gpsLoading
+              ? <ActivityIndicator size="small" color="#22c55e" />
+              : <MapPin size={18} color="#22c55e" />}
+            <Text style={styles.actionText}>MAJ GPS</Text>
           </TouchableOpacity>
           {lcu.latitude != null && (
             <TouchableOpacity style={styles.action} onPress={() => router.push('/map')}>

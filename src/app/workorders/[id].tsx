@@ -4,7 +4,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Stethoscope, CheckCircle2, Play, FileText, Flag, Map as MapIcon, Send,
-  Camera, Image as ImageIcon,
+  Camera, Image as ImageIcon, Bell, Calendar,
 } from 'lucide-react-native'
 import * as ImagePicker from 'expo-image-picker'
 import { 
@@ -17,6 +17,7 @@ import { useThemeStore } from '../../store/themeStore'
 import { useNetworkStatus } from '../../hooks/useNetworkStatus'
 import { Palette } from '../../constants/theme'
 import { API_URL } from '../../constants/config'
+import AIFieldDiagnostic from '../../components/AIFieldDiagnostic'
 
 export default function WorkOrderDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
@@ -205,6 +206,61 @@ export default function WorkOrderDetailScreen() {
         </View>
       )}
 
+      {/* Alerte source */}
+      {wo.alert && (
+        <View style={styles.section}>
+          <View style={styles.sectionHeaderRow}>
+            <Bell size={13} color="#fca5a5" />
+            <Text style={styles.sectionTitle}>Alerte source</Text>
+          </View>
+          <View style={styles.infoRow}>
+            <Text style={styles.label}>Sévérité</Text>
+            <StatusBadge type="priority" value={wo.alert.severity} small />
+          </View>
+          <View style={styles.alertMsgBox}>
+            <Text style={styles.alertMsgText}>{wo.alert.message}</Text>
+          </View>
+        </View>
+      )}
+
+      {/* Fenêtre de maintenance */}
+      {wo.maintenance_window && (
+        <View style={styles.section}>
+          <View style={styles.sectionHeaderRow}>
+            <Calendar size={13} color="#93c5fd" />
+            <Text style={styles.sectionTitle}>Fenêtre de maintenance</Text>
+          </View>
+          <View style={styles.infoRow}>
+            <Text style={styles.label}>Titre</Text>
+            <Text style={styles.value}>{wo.maintenance_window.title}</Text>
+          </View>
+          <View style={styles.infoRow}>
+            <Text style={styles.label}>Statut</Text>
+            <StatusBadge type="status" value={wo.maintenance_window.status} small />
+          </View>
+          <View style={styles.infoRow}>
+            <Text style={styles.label}>Impact</Text>
+            <Text style={styles.value}>{wo.maintenance_window.impact_level}</Text>
+          </View>
+          <View style={styles.infoRow}>
+            <Text style={styles.label}>Début</Text>
+            <Text style={styles.value}>{new Date(wo.maintenance_window.start_at).toLocaleString('fr-FR')}</Text>
+          </View>
+          <View style={styles.infoRow}>
+            <Text style={styles.label}>Fin</Text>
+            <Text style={styles.value}>{new Date(wo.maintenance_window.end_at).toLocaleString('fr-FR')}</Text>
+          </View>
+          {wo.maintenance_window.reason ? (
+            <View style={styles.alertMsgBox}>
+              <Text style={styles.alertMsgText}>{wo.maintenance_window.reason}</Text>
+            </View>
+          ) : null}
+        </View>
+      )}
+
+      {/* AI Diagnostic terrain */}
+      <AIFieldDiagnostic entityType="workorder" entityId={id} />
+
       {/* Photos Section */}
       <View style={styles.section}>
         <View style={styles.sectionHeader}>
@@ -363,6 +419,9 @@ const createStyles = (p: Palette) => StyleSheet.create({
   logNote: { color: p.textMuted, fontSize: 12, marginTop: 2 },
   logDate: { color: p.textMuted, opacity: 0.7, fontSize: 11, marginTop: 2 },
   sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
+  sectionHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10 },
+  alertMsgBox: { marginTop: 8, padding: 10, backgroundColor: p.bg, borderRadius: 8, borderWidth: 1, borderColor: p.border },
+  alertMsgText: { color: p.textMuted, fontSize: 12, lineHeight: 18 },
   photoCount: { backgroundColor: p.bg, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
   photoCountText: { color: p.textMuted, fontSize: 11, fontWeight: '600' },
   photoGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 },

@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { View, Text, ScrollView, TouchableOpacity, TextInput, Alert, RefreshControl, StyleSheet } from 'react-native'
+import { View, Text, ScrollView, TouchableOpacity, TextInput, Alert, RefreshControl, ActivityIndicator, StyleSheet } from 'react-native'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import * as Location from 'expo-location'
@@ -8,6 +8,7 @@ import {
   Send, AlertTriangle, Wifi, WifiOff, Wrench, Thermometer, Zap, Gauge,
 } from 'lucide-react-native'
 import { getLampadaireDetails, addLampadaireFieldNote, updateLampadaireLocation } from '../../api/lampadaires'
+import AIFieldDiagnostic from '../../components/AIFieldDiagnostic'
 import { ETAT_COLORS, COMMISSIONING_LABEL, SYNC_ACTIONS } from '../../constants/config'
 import { useNetworkStatus } from '../../hooks/useNetworkStatus'
 import { useSyncStore } from '../../store/syncStore'
@@ -44,25 +45,38 @@ export default function LampadaireDetailScreen() {
     noteMut.mutate(note)
   }
 
+  const [gpsLoading, setGpsLoading] = useState(false)
   const handleGPS = async () => {
-    if (!l?.assigned_to_me) {
-      Alert.alert('Non autorisé', 'La mise à jour GPS n\'est possible que pour un lampadaire lié à votre intervention ou en mise en service.')
-      return
-    }
     const { status } = await Location.requestForegroundPermissionsAsync()
     if (status !== 'granted') { Alert.alert('GPS', 'Permission de localisation refusée.'); return }
-    const loc = await Location.getCurrentPositionAsync({})
-    const { latitude, longitude, accuracy } = loc.coords
-    if (!isOnline) {
-      addAction({ type: SYNC_ACTIONS.UPDATE_LOCATION, entity: 'lampadaire', entity_id: Number(id), payload: { latitude, longitude, source: 'technician_mobile' } })
-      Alert.alert('Position enregistrée', 'Synchronisation au retour du réseau.')
-      return
-    }
+    setGpsLoading(true)
     try {
-      await updateLampadaireLocation(Number(id), latitude, longitude, accuracy ?? 0)
-      qc.invalidateQueries({ queryKey: ['lampadaire', id] })
-      Alert.alert('GPS mis à jour', `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`)
-    } catch { Alert.alert('Erreur', 'Mise à jour GPS échouée.') }
+      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High })
+      const { latitude, longitude, accuracy } = loc.coords
+      const coordStr = `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`
+      Alert.alert(
+        'Confirmer la localisation',
+        `Mettre à jour la position de ${l?.reference || 'ce lampadaire'} ?\n\n📍 ${coordStr}${accuracy ? `\nPrécision : ±${Math.round(accuracy)} m` : ''}`,
+        [
+          { text: 'Annuler', style: 'cancel' },
+          {
+            text: 'Confirmer', onPress: async () => {
+              if (!isOnline) {
+                addAction({ type: SYNC_ACTIONS.UPDATE_LOCATION, entity: 'lampadaire', entity_id: Number(id), payload: { latitude, longitude, source: 'technician_mobile' } })
+                Alert.alert('Position enregistrée', 'Synchronisation au retour du réseau.')
+                return
+              }
+              try {
+                await updateLampadaireLocation(Number(id), latitude, longitude, accuracy ?? 0)
+                qc.invalidateQueries({ queryKey: ['lampadaire', id] })
+                Alert.alert('GPS mis à jour', coordStr)
+              } catch { Alert.alert('Erreur', 'Mise à jour GPS échouée.') }
+            }
+          },
+        ]
+      )
+    } catch { Alert.alert('Erreur GPS', 'Impossible d\'obtenir la position.') }
+    finally { setGpsLoading(false) }
   }
 
   if (isLoading || !l) return <View style={styles.center}><Text style={styles.loading}>Chargement…</Text></View>
@@ -105,6 +119,8 @@ export default function LampadaireDetailScreen() {
           { k: 'Driver', v: [l.driver_brand, l.driver_model].filter(Boolean).join(' ') || l.type_driver || '—' },
           { k: 'Mise en service', v: COMMISSIONING_LABEL[l.commissioning_status] ?? l.commissioning_status },
           { k: 'Statut GPS', v: l.location_status || '—' },
+          { k: 'Latitude', v: l.latitude != null ? l.latitude.toFixed(6) : '—' },
+          { k: 'Longitude', v: l.longitude != null ? l.longitude.toFixed(6) : '—' },
           { k: 'Dernière comm.', v: l.last_seen_at ? new Date(l.last_seen_at).toLocaleString('fr-FR') : '—' },
         ].map((row) => (
           <View key={row.k} style={styles.row}>
@@ -163,6 +179,9 @@ export default function LampadaireDetailScreen() {
         </View>
       )}
 
+      {/* AI Diagnostic terrain */}
+      <AIFieldDiagnostic entityType="lampadaire" entityId={l.id} />
+
       {/* Actions terrain */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Actions terrain</Text>
@@ -173,8 +192,11 @@ export default function LampadaireDetailScreen() {
           <TouchableOpacity style={styles.action} onPress={() => setShowNote(!showNote)}>
             <FileText size={18} color="#f59e0b" /><Text style={styles.actionText}>Note terrain</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={[styles.action, !l.assigned_to_me && styles.actionDisabled]} onPress={handleGPS}>
-            <MapPin size={18} color={l.assigned_to_me ? '#22c55e' : '#475569'} /><Text style={styles.actionText}>MAJ GPS</Text>
+          <TouchableOpacity style={styles.action} onPress={handleGPS} disabled={gpsLoading}>
+            {gpsLoading
+              ? <ActivityIndicator size="small" color="#22c55e" />
+              : <MapPin size={18} color="#22c55e" />}
+            <Text style={styles.actionText}>MAJ GPS</Text>
           </TouchableOpacity>
           {l.work_orders?.length > 0 && (
             <TouchableOpacity style={styles.action} onPress={() => router.push(`/workorders/${l.work_orders[0].id}` as never)}>
