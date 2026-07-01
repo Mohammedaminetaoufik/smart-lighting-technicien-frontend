@@ -1,5 +1,4 @@
 export const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8081'
-export const DEFAULT_TECHNICIAN_ID = Number(process.env.EXPO_PUBLIC_DEFAULT_TECHNICIAN_ID ?? '1')
 
 export const SYNC_ACTIONS = {
   ACCEPT_WORK_ORDER:                'ACCEPT_WORK_ORDER',

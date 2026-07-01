@@ -1,5 +1,5 @@
 import axios from 'axios'
-import { API_URL, DEFAULT_TECHNICIAN_ID } from '../constants/config'
+import { API_URL } from '../constants/config'
 
 export const apiClient = axios.create({
   baseURL: API_URL,
@@ -7,13 +7,25 @@ export const apiClient = axios.create({
   headers: { 'Content-Type': 'application/json' },
 })
 
-// Injecte automatiquement le technician_id dans chaque requête GET
-// TODO(auth): Quand AUTH_ENABLED=true, remplacer par un intercepteur JWT Bearer token.
 apiClient.interceptors.request.use((config) => {
-  if (config.method === 'get' && config.params) {
-    config.params.technician_id = config.params.technician_id ?? DEFAULT_TECHNICIAN_ID
-  } else if (config.method === 'get') {
-    config.params = { technician_id: DEFAULT_TECHNICIAN_ID }
+  // Lazy-import to avoid circular deps (authStore → client → authStore)
+  const { useAuthStore } = require('../store/authStore')
+  const token = useAuthStore.getState().token
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`
   }
   return config
 })
+
+apiClient.interceptors.response.use(
+  (res) => res,
+  async (err) => {
+    if (err.response?.status === 401) {
+      const { useAuthStore } = require('../store/authStore')
+      await useAuthStore.getState().logout()
+      const { router } = require('expo-router')
+      router.replace('/(auth)/login')
+    }
+    return Promise.reject(err)
+  }
+)

@@ -1,11 +1,15 @@
 import React, { useState } from 'react'
-import { View, Text, FlatList, TouchableOpacity, RefreshControl, StyleSheet, ScrollView } from 'react-native'
+import {
+  View, Text, FlatList, TouchableOpacity, RefreshControl,
+  StyleSheet, ScrollView, Platform,
+} from 'react-native'
 import { useRouter, useLocalSearchParams } from 'expo-router'
 import { useQuery } from '@tanstack/react-query'
-import { ClipboardList, Filter } from 'lucide-react-native'
+import { ClipboardList, SlidersHorizontal, ChevronRight, Zap } from 'lucide-react-native'
 import { getMyWorkOrders } from '../../api/workorders'
 import { WorkOrderCard } from '../../components/WorkOrderCard'
 import { OfflineBanner } from '../../components/OfflineBanner'
+import { TabBar } from '../../components/ui/TabBar'
 import { PRIORITY_COLORS } from '../../constants/config'
 import { useThemeStore } from '../../store/themeStore'
 import { Palette } from '../../constants/theme'
@@ -21,16 +25,16 @@ const PRIORITY_LABELS: Record<string, string> = {
 }
 
 type Scope = 'all' | 'mine' | 'available'
-const SCOPES: { key: Scope; label: string }[] = [
-  { key: 'all', label: 'Tous' },
-  { key: 'mine', label: 'Mes interventions' },
-  { key: 'available', label: 'Disponibles' },
+const SCOPES: { key: Scope; label: string; color: string }[] = [
+  { key: 'all',       label: 'Toutes',         color: '#64748b' },
+  { key: 'mine',      label: 'Mes missions',    color: '#3b82f6' },
+  { key: 'available', label: 'Disponibles',     color: '#10b981' },
 ]
 
 export default function WorkOrdersScreen() {
   const router = useRouter()
   const params = useLocalSearchParams<{ status?: string; priority?: string }>()
-  const [statusFilter, setStatusFilter] = useState(params.status ?? 'Tous')
+  const [statusFilter,   setStatusFilter]   = useState(params.status   ?? 'Tous')
   const [priorityFilter, setPriorityFilter] = useState(params.priority ?? 'Tous')
   const [scope, setScope] = useState<Scope>('all')
 
@@ -41,132 +45,172 @@ export default function WorkOrdersScreen() {
     queryKey: ['workorders', scope, statusFilter, priorityFilter],
     queryFn: () => getMyWorkOrders({
       scope,
-      ...(statusFilter !== 'Tous' ? { status: statusFilter } : {}),
+      ...(statusFilter   !== 'Tous' ? { status: statusFilter }     : {}),
       ...(priorityFilter !== 'Tous' ? { priority: priorityFilter } : {}),
     }),
   })
 
   const workOrders = data?.work_orders ?? []
+  const activeScope = SCOPES.find(s => s.key === scope)!
 
   return (
     <View style={styles.container}>
       <OfflineBanner />
 
-      {/* Scope filter tabs */}
-      <View style={styles.tabs}>
+      {/* ── Header ─────────────────────────────────────────── */}
+      <View style={styles.header}>
+        <View>
+          <Text style={styles.headerTitle}>Interventions</Text>
+          <Text style={styles.headerSub}>{workOrders.length} bon{workOrders.length !== 1 ? 's' : ''} de travail</Text>
+        </View>
+        <View style={[styles.headerBadge, { backgroundColor: activeScope.color + '18', borderColor: activeScope.color + '40' }]}>
+          <Zap size={11} color={activeScope.color} />
+          <Text style={[styles.headerBadgeText, { color: activeScope.color }]}>{activeScope.label}</Text>
+        </View>
+      </View>
+
+      {/* ── Scope tabs ─────────────────────────────────────── */}
+      <View style={styles.scopeRow}>
         {SCOPES.map((s) => (
           <TouchableOpacity
             key={s.key}
-            style={[styles.tab, scope === s.key && styles.tabActive]}
+            style={[styles.scopeTab, scope === s.key && { backgroundColor: s.color + '18', borderColor: s.color + '60' }]}
             onPress={() => setScope(s.key)}
+            activeOpacity={0.7}
           >
-            <Text style={[styles.tabText, scope === s.key && styles.tabTextActive]}>
+            {scope === s.key && <View style={[styles.scopeDot, { backgroundColor: s.color }]} />}
+            <Text style={[styles.scopeText, scope === s.key && { color: s.color, fontWeight: '700' }]}>
               {s.label}
             </Text>
           </TouchableOpacity>
         ))}
       </View>
 
-      {/* Status filter tabs */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll}>
-        <View style={styles.filtersContainer}>
-          {STATUSES.map((s) => (
-            <TouchableOpacity
-              key={s}
-              style={[styles.chip, statusFilter === s && styles.chipActive]}
-              onPress={() => setStatusFilter(s)}
-            >
-              <Text style={[styles.chipText, statusFilter === s && styles.chipTextActive]}>
-                {STATUS_LABELS[s] ?? s}
-              </Text>
-            </TouchableOpacity>
-          ))}
+      {/* ── Filter bar ─────────────────────────────────────── */}
+      <View style={styles.filterBar}>
+        <View style={styles.filterIcon}>
+          <SlidersHorizontal size={13} color={palette.textMuted} />
+        </View>
+
+        {/* Status chips */}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll}>
+          <View style={styles.chipsRow}>
+            {STATUSES.map((s) => {
+              const isActive = statusFilter === s
+              return (
+                <TouchableOpacity
+                  key={s}
+                  style={[styles.chip, isActive && { backgroundColor: palette.accent + '18', borderColor: palette.accent + '60' }]}
+                  onPress={() => setStatusFilter(s)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.chipText, isActive && { color: palette.accent, fontWeight: '700' }]}>
+                    {STATUS_LABELS[s] ?? s}
+                  </Text>
+                </TouchableOpacity>
+              )
+            })}
+          </View>
+        </ScrollView>
+      </View>
+
+      {/* ── Priority chips ─────────────────────────────────── */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.priorityScroll}>
+        <View style={styles.chipsRow}>
+          {PRIORITIES.map((p) => {
+            const isActive = priorityFilter === p
+            const color = PRIORITY_COLORS[p] ?? palette.textMuted
+            return (
+              <TouchableOpacity
+                key={p}
+                style={[styles.chip, isActive && { backgroundColor: color + '15', borderColor: color + '60' }]}
+                onPress={() => setPriorityFilter(p)}
+                activeOpacity={0.7}
+              >
+                <View style={[styles.priorityDot, { backgroundColor: color, opacity: isActive ? 1 : 0.5 }]} />
+                <Text style={[styles.chipText, isActive && { color, fontWeight: '700' }]}>
+                  {PRIORITY_LABELS[p] ?? p}
+                </Text>
+              </TouchableOpacity>
+            )
+          })}
         </View>
       </ScrollView>
-{/* Priority filter chips */}
-<ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll}>
-  <View style={styles.filtersContainer}>
-    <Filter size={14} color={palette.textMuted} style={{ marginRight: 4 }} />
-    {/* Priority filter chips */}
-    {PRIORITIES.map((p) => {
-      const isActive = priorityFilter === p
-      const color = PRIORITY_COLORS[p] ?? palette.textMuted
-      return (
-        <TouchableOpacity
-          key={p}
-          style={[
-            styles.chip,
-            isActive && { backgroundColor: `${color}15`, borderColor: color }
-          ]}
-          onPress={() => setPriorityFilter(p)}
-        >
-          <View style={[styles.priorityDot, { backgroundColor: color }]} />
-          <Text style={[styles.chipText, isActive && { color }]}>
-            {PRIORITY_LABELS[p] ?? p}
-          </Text>
-        </TouchableOpacity>
-      )
-    })}
-  </View>
-</ScrollView>
 
-
+      {/* ── List ───────────────────────────────────────────── */}
       <FlatList
         data={workOrders}
         keyExtractor={(item) => String(item.id)}
         contentContainerStyle={styles.list}
-        refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor={palette.brand} />}
+        refreshControl={
+          <RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor={palette.accent} />
+        }
         renderItem={({ item }) => (
-          <WorkOrderCard workOrder={item} onPress={() => router.push(`/workorders/${item.id}` as never)} />
+          <WorkOrderCard
+            workOrder={item}
+            onPress={() => router.push(`/workorders/${item.id}` as never)}
+          />
         )}
         ListEmptyComponent={
           <View style={styles.empty}>
-            <View style={styles.emptyIconBox}>
+            <View style={[styles.emptyIconBox, { backgroundColor: palette.surface, borderColor: palette.border }]}>
               <ClipboardList size={28} color={palette.textMuted} />
             </View>
-
-            <Text style={styles.emptyText}>Aucune intervention</Text>
-            <Text style={styles.emptySubText}>
+            <Text style={styles.emptyTitle}>Aucune intervention</Text>
+            <Text style={styles.emptySub}>
               {scope === 'mine'
                 ? 'Vos interventions assignées apparaîtront ici'
                 : scope === 'available'
-                ? 'Les interventions disponibles à prendre apparaîtront ici'
-                : 'Les bons de travail apparaîtront ici'}
+                ? 'Aucune intervention disponible pour le moment'
+                : 'Aucun bon de travail ne correspond à ce filtre'}
             </Text>
           </View>
         }
       />
+
+      <TabBar active="workorders" />
     </View>
   )
 }
 
 const createStyles = (p: Palette) => StyleSheet.create({
   container: { flex: 1, backgroundColor: p.bg },
-  tabs: { flexDirection: 'row', paddingHorizontal: 12, paddingVertical: 8, gap: 6 },
-  tab: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, backgroundColor: p.surface, borderWidth: 1, borderColor: p.border },
-  tabActive: { backgroundColor: p.brand + '22', borderColor: p.brand },
-  tabText: { color: p.textMuted, fontSize: 12, fontWeight: '600' },
-  tabTextActive: { color: p.brand },
-  filterScroll: { flexGrow: 0, paddingVertical: 4 },
-  filtersContainer: { flexDirection: 'row', paddingHorizontal: 12, gap: 6, alignItems: 'center' },
-  chip: { 
-    flexDirection: 'row', 
-    alignItems: 'center', 
-    paddingHorizontal: 10, 
-    paddingVertical: 5, 
-    borderRadius: 12, 
-    backgroundColor: p.surface, 
-    borderWidth: 1, 
-    borderColor: p.border,
-    gap: 6
+
+  header: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 16, paddingTop: Platform.OS === 'ios' ? 16 : 12, paddingBottom: 8,
   },
-  chipActive: { backgroundColor: p.accent + '15', borderColor: p.accent },
-  chipText: { color: p.textMuted, fontSize: 11, fontWeight: '600' },
-  chipTextActive: { color: p.accent },
+  headerTitle:    { color: p.text, fontSize: 20, fontWeight: '800', letterSpacing: -0.4 },
+  headerSub:      { color: p.textMuted, fontSize: 12, marginTop: 1 },
+  headerBadge:    { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20, borderWidth: 1 },
+  headerBadgeText:{ fontSize: 11, fontWeight: '700' },
+
+  scopeRow: { flexDirection: 'row', paddingHorizontal: 12, paddingBottom: 8, gap: 6 },
+  scopeTab: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5,
+    paddingVertical: 7, paddingHorizontal: 8, borderRadius: 10,
+    backgroundColor: p.surface, borderWidth: 1, borderColor: p.border,
+  },
+  scopeDot: { width: 5, height: 5, borderRadius: 3 },
+  scopeText:{ color: p.textMuted, fontSize: 12, fontWeight: '600' },
+
+  filterBar:     { flexDirection: 'row', alignItems: 'center', paddingLeft: 12, paddingBottom: 4 },
+  filterIcon:    { width: 26, height: 26, alignItems: 'center', justifyContent: 'center' },
+  filterScroll:  { flexGrow: 0 },
+  priorityScroll:{ flexGrow: 0, paddingLeft: 12, paddingBottom: 6 },
+  chipsRow:      { flexDirection: 'row', paddingRight: 12, gap: 6, alignItems: 'center' },
+  chip: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: 10, paddingVertical: 5, borderRadius: 10,
+    backgroundColor: p.surface, borderWidth: 1, borderColor: p.border, gap: 5,
+  },
+  chipText:    { color: p.textMuted, fontSize: 11, fontWeight: '600' },
   priorityDot: { width: 6, height: 6, borderRadius: 3 },
-  list: { padding: 12 },
-  empty: { alignItems: 'center', paddingTop: 60 },
-  emptyIconBox: { width: 64, height: 64, borderRadius: 18, backgroundColor: p.surface, alignItems: 'center', justifyContent: 'center', marginBottom: 16 },
-  emptyText: { color: p.text, fontSize: 16, fontWeight: '700', marginBottom: 6 },
-  emptySubText: { color: p.textMuted, fontSize: 13 },
+
+  list: { paddingHorizontal: 12, paddingTop: 4, paddingBottom: 8 },
+
+  empty:       { alignItems: 'center', paddingTop: 60, paddingHorizontal: 32 },
+  emptyIconBox:{ width: 68, height: 68, borderRadius: 20, alignItems: 'center', justifyContent: 'center', marginBottom: 16, borderWidth: 1 },
+  emptyTitle:  { color: p.text, fontSize: 16, fontWeight: '700', marginBottom: 6 },
+  emptySub:    { color: p.textMuted, fontSize: 13, textAlign: 'center', lineHeight: 19 },
 })

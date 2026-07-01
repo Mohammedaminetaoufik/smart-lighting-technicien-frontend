@@ -1,5 +1,4 @@
 import { apiClient } from './client'
-import { DEFAULT_TECHNICIAN_ID } from '../constants/config'
 
 export const getLampadaires = async (filters?: { zone?: string; etat?: string; search?: string }) => {
   const { data } = await apiClient.get('/api/mobile/lampadaires', { params: filters })
@@ -22,15 +21,13 @@ export const getLampadaireWorkOrders = async (id: number) => {
 }
 
 export const addLampadaireFieldNote = async (id: number, note: string) => {
-  const { data } = await apiClient.post(`/api/mobile/lampadaires/${id}/field-note`, {
-    technician_id: DEFAULT_TECHNICIAN_ID, note,
-  })
+  const { data } = await apiClient.post(`/api/mobile/lampadaires/${id}/field-note`, { note })
   return data
 }
 
 export const updateLampadaireLocation = async (id: number, latitude: number, longitude: number, accuracy?: number) => {
   const { data } = await apiClient.post(`/api/mobile/lampadaires/${id}/location`, {
-    technician_id: DEFAULT_TECHNICIAN_ID, latitude, longitude, accuracy: accuracy ?? 0, source: 'technician_mobile',
+    latitude, longitude, accuracy: accuracy ?? 0, source: 'technician_mobile',
   })
   return data
 }

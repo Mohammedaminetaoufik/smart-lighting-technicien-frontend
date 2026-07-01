@@ -1,5 +1,4 @@
 import { apiClient } from './client'
-import { DEFAULT_TECHNICIAN_ID } from '../constants/config'
 
 export const getLCUs = async () => {
   const { data } = await apiClient.get('/api/mobile/lcus')
@@ -22,25 +21,23 @@ export const getLCUDiagnostic = async (id: number) => {
 }
 
 export const testLCU = async (id: number) => {
-  const { data } = await apiClient.post(`/api/mobile/lcus/${id}/test`, { technician_id: DEFAULT_TECHNICIAN_ID })
+  const { data } = await apiClient.post(`/api/mobile/lcus/${id}/test`, {})
   return data
 }
 
 export const syncLCU = async (id: number) => {
-  const { data } = await apiClient.post(`/api/mobile/lcus/${id}/sync`, { technician_id: DEFAULT_TECHNICIAN_ID })
+  const { data } = await apiClient.post(`/api/mobile/lcus/${id}/sync`, {})
   return data
 }
 
 export const addLCUFieldNote = async (id: number, note: string) => {
-  const { data } = await apiClient.post(`/api/mobile/lcus/${id}/field-note`, {
-    technician_id: DEFAULT_TECHNICIAN_ID, note,
-  })
+  const { data } = await apiClient.post(`/api/mobile/lcus/${id}/field-note`, { note })
   return data
 }
 
 export const updateLCULocation = async (id: number, latitude: number, longitude: number, accuracy?: number) => {
   const { data } = await apiClient.post(`/api/mobile/lcus/${id}/location`, {
-    technician_id: DEFAULT_TECHNICIAN_ID, latitude, longitude, accuracy: accuracy ?? 0,
+    latitude, longitude, accuracy: accuracy ?? 0,
   })
   return data
 }

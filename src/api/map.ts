@@ -1,12 +1,10 @@
 import { apiClient } from './client'
-import { DEFAULT_TECHNICIAN_ID } from '../constants/config'
 
 export const getTechnicianContext = async (params?: {
   latitude?: number; longitude?: number; radius?: number
 }) => {
   const { data } = await apiClient.get('/api/map/technician-context', {
     params: {
-      technician_id: DEFAULT_TECHNICIAN_ID,
       include_lcus: true,
       include_connections: true,
       ...params,
@@ -39,8 +37,6 @@ export const getMissingLocation = async () => {
   return data
 }
 
-// Lecture seule — pas de dimming, pas d'ajout de LCU
-// La mise à jour GPS reste disponible pour le technicien terrain
 export const updateLampadaireLocation = async (
   id: number, latitude: number, longitude: number, accuracy?: number
 ) => {
